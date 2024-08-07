@@ -13,21 +13,35 @@ export default function Home() {
   ])
   const [message, setMessage] = useState('')
   const [isLoading, setIsLoading] = useState(false)
+  const [isListening, setIsListening] = useState(false)
+  const [recognition, setRecognition] = useState(null)
+
+  useEffect(() => {
+    if(typeof window != 'undefined') {
+      //Initialize SpeechRecognition
+      const SpeechRecognition = window.SpeechRecogniton || window.webkitSpeechRecognition;
+      const recognitionInstance = SpeechRecognition ? new SpeechRecognition() : null;
+      setRecognition(recognitionInstance)
+    }
+  }, [])
 
   /**
    * This function handles sending the user's message to the server, receiving the streamed response from the OpenAI API,
    * and updating the chat interface in real-time
    */
-  const sendMessage = async () => { 
-    if (!message.trim() || isLoading) return // don't send empty messages
+  const sendMessage = async (voiceMessage = null, isVoiceInput = false) => { 
+    const messageToSend = voiceMessage || message;
+    if (!messageToSend.trim() || isLoading) return // don't send empty messages
     setIsLoading(true)
 
-    setMessage('')//Clear the input field by setting its state to an empty string
+    if (!isVoiceInput) {
+      setMessage('')//Clear the input field by setting its state to an empty string
+    }
 
     //update the message state to include the user's message and a placeholder for the assistant's response
     setMessages((messages) => [
       ...messages, //spread operator includes all previous messages
-      {role: 'user', content: message}, //Add the user's message to the chat
+      {role: 'user', content: messageToSend}, //Add the user's message to the chat
       {role: 'assistant', content: ''}, //Add a placeholder for the assistant's response
     ]);
 
@@ -39,7 +53,7 @@ export default function Home() {
         headers: {
           'Content-Type': 'application/json', //defines the content type as JSON
         },
-        body: JSON.stringify([...messages, {role: 'user', content: message }]), //contains the entire conversation history (including the latest user message) serialized into a JSON str
+        body: JSON.stringify([...messages, {role: 'user', content: messageToSend }]), //contains the entire conversation history (including the latest user message) serialized into a JSON str
       })
 
       if (!response.ok) {
@@ -50,21 +64,30 @@ export default function Home() {
       const reader = response.body.getReader() //to read the response body as a stream of data chunks
       const decoder = new TextDecoder() //decode data into text
 
+      let assistantMessage = ''
       while (true) { //continuously read chunks of the response until the stream is fully consumed
         const { done, value } = await reader.read() 
         if (done) break
 
         const text = decoder.decode(value, { stream: true }) //decodes the current chunk into a text string
+        assistantMessage += text
 
         setMessages((messages) => {//update the setMessages state to the response to the last recent user's question
           let lastMessage = messages[messages.length - 1] //retrieves the last message in the state, which is the placeholder for the assistant's response
           let otherMessages = messages.slice(0, messages.length - 1) //retrieves all other messages except the last one.
           return [
             ...otherMessages,
-            {...lastMessage, content:lastMessage.content + text},
+            {...lastMessage, content: assistantMessage },
           ]
         })
       }
+
+      //Read out the response using speech synthesis only if isListening is true
+      if (isVoiceInput){
+        const utterance = new SpeechSynthesisUtterance(assistantMessage);
+        speechSynthesis.speak(utterance);
+      }
+
     } catch (error) {//if there is an error sending messages to the server
       console.error('Error:', error)
       setMessages((messages) => [ //set the setMessages state to error message
@@ -73,6 +96,10 @@ export default function Home() {
       ])
     }
     setIsLoading(false)
+
+    if(isVoiceInput){
+      setMessage('') //Clear the input field after sending voice message
+    }
 }
 
 //sent message to open ai api when user press 'Enter'
@@ -82,6 +109,35 @@ const handleKeyPress = (event) => {
     sendMessage()
   }
 }
+
+// start recording the voice 
+const handleVoiceStart = () => {
+  if (recognition) {
+    setIsListening(true);
+    recognition.start();
+  } else {
+    alert('Speech recogniton is not supported in this browser.');
+  }
+}
+
+//stop recording the voice
+const handleVoiceStop = () => {
+  if (recognition) {
+    setIsListening(false);
+    recognition.stop();
+
+    if (message.trim()){
+      sendMessage(message, true); //pass true to indicate it's a voice message
+    }
+  }
+}
+
+//convert the speech to text and put the input text to openai api
+recognition && (recognition.onresult = (event) => {
+  const transcript = event.results[0][0].transcript;
+  setMessage(transcript);
+  //sendMessage(transcript);
+})
 
 //Auto scrolling to the most recent open ai api response
 const messagesEndRef = useRef(null)
@@ -153,12 +209,19 @@ useEffect(() => {
             onKeyPress={handleKeyPress}
             disabled={isLoading}
           />
-          <Button variant="contained" 
-          onClick={sendMessage}
-          disabled={isLoading}
-          >
+          <Button variant="contained" onClick={() => sendMessage(null, false)} disabled={isLoading}>
             {isLoading ? 'Sending...' : 'Send'}
           </Button>
+
+          {isListening ? (
+            <Button variant='contained' onClick={handleVoiceStop}>
+              Stop
+            </Button>
+          ) : (
+            <Button variant='contained' onClick={handleVoiceStart}>
+              Start Voice
+            </Button>
+          )}
         </Stack>
       </Stack>
     </Box>
