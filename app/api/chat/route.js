@@ -93,7 +93,7 @@ async function loadAndProcessPDF(pdfPath) {
 
 // Load and process the PDF when the server starts or on-demand
 
-await loadAndProcessPDF('/pdf_files/Does The Recent Stock Market Crash Indicate A Recession In 2024?.pdf');
+await loadAndProcessPDF('/public/pdf_files/Does The Recent Stock Market Crash Indicate A Recession In 2024?.pdf');
 
 
 // System prompt for the AI
